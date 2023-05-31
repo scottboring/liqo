@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	virtualkubeletv1alpha1 "github.com/liqotech/liqo/apis/virtualkubelet/v1alpha1"
+	"github.com/liqotech/liqo/pkg/utils/indexer"
 	"github.com/liqotech/liqo/pkg/virtualKubelet"
 )
 
@@ -58,7 +59,7 @@ func getPodsForDeletion(ctx context.Context, cl client.Client, vn *virtualkubele
 	podList := &corev1.PodList{}
 	err := cl.List(ctx, podList, &client.ListOptions{
 		FieldSelector: client.MatchingFieldsSelector{
-			Selector: fields.OneTermEqualSelector(nodeNameField, virtualKubelet.VirtualNodeName(vn)),
+			Selector: fields.OneTermEqualSelector(indexer.FieldNodeNameFromPod, virtualKubelet.VirtualNodeName(vn)),
 		},
 	})
 	klog.Infof("Drain node %s -> %d pods found", virtualKubelet.VirtualNodeName(vn), len(podList.Items))

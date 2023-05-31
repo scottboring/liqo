@@ -45,7 +45,6 @@ import (
 
 const (
 	virtualNodeControllerFinalizer = "virtualnode-controller.liqo.io/finalizer"
-	nodeNameField                  = "spec.nodeName"
 )
 
 // VirtualNodeReconciler manage NamespaceMap lifecycle.
@@ -123,10 +122,6 @@ func (r *VirtualNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 // SetupWithManager register the VirtualNodeReconciler to the manager.
 func (r *VirtualNodeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	// Add field containing node Name to the Field Indexer
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, nodeNameField, extractNodeNameFromPod); err != nil {
-		return err
-	}
 	// select virtual kubelet deployments only
 	deployPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
 		MatchLabels: vkMachinery.KubeletBaseLabels,
