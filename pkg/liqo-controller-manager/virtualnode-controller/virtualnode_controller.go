@@ -18,7 +18,6 @@ import (
 	"context"
 
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -50,11 +49,35 @@ const (
 // VirtualNodeReconciler manage NamespaceMap lifecycle.
 type VirtualNodeReconciler struct {
 	client.Client
+	ClientLocal           client.Client
 	Scheme                *runtime.Scheme
 	HomeClusterIdentity   *discoveryv1alpha1.ClusterIdentity
 	VirtualKubeletOptions *vkforge.VirtualKubeletOpts
 	EventsRecorder        record.EventRecorder
 	dr                    *DeletionRoutine
+}
+
+// NewVIrtualNodeReconciler creates a new VirtualNodeReconciler.
+func NewVirtualNodeReconciler(
+	cl client.Client, cll client.Client,
+	s *runtime.Scheme, er record.EventRecorder,
+	hci *discoveryv1alpha1.ClusterIdentity, vko *vkforge.VirtualKubeletOpts,
+) (*VirtualNodeReconciler, error) {
+	vnr := &VirtualNodeReconciler{
+		Client:                cl,
+		ClientLocal:           cll,
+		Scheme:                s,
+		HomeClusterIdentity:   hci,
+		VirtualKubeletOptions: vko,
+		EventsRecorder:        er,
+	}
+	var err error
+	vnr.dr, err = RunDeletionRoutine(vnr)
+	if err != nil {
+		klog.Errorf("Unable to run the deletion routine: %s", err)
+		return nil, err
+	}
+	return vnr, nil
 }
 
 // cluster-role
@@ -65,16 +88,8 @@ type VirtualNodeReconciler struct {
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;delete;create;update;patch
 
 // Reconcile manage NamespaceMaps associated with the virtual-node.
+
 func (r *VirtualNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	if !deletionRoutineRunning {
-		var err error
-		r.dr, err = RunDeletionRoutine(r)
-		if err != nil {
-			klog.Errorf("Unable to run the deletion routine: %s", err)
-			return ctrl.Result{}, err
-		}
-		deletionRoutineRunning = true
-	}
 	virtualNode := &virtualkubeletv1alpha1.VirtualNode{}
 	if err := r.Get(ctx, req.NamespacedName, virtualNode); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -93,9 +108,6 @@ func (r *VirtualNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	} else {
 		if ctrlutil.ContainsFinalizer(virtualNode, virtualNodeControllerFinalizer) {
-			if err := r.ensureVirtualKubeletDeploymentAbsence(ctx, virtualNode); err != nil {
-				return ctrl.Result{}, err
-			}
 			if err := r.ensureNamespaceMapAbsence(ctx, virtualNode); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -121,7 +133,7 @@ func (r *VirtualNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 // SetupWithManager register the VirtualNodeReconciler to the manager.
-func (r *VirtualNodeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
+func (r *VirtualNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// select virtual kubelet deployments only
 	deployPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
 		MatchLabels: vkMachinery.KubeletBaseLabels,
@@ -155,12 +167,4 @@ func (r *VirtualNodeReconciler) SetupWithManager(ctx context.Context, mgr ctrl.M
 		},
 		builder.WithPredicates(deployPredicate),
 	).Complete(r)
-}
-
-func extractNodeNameFromPod(rawObj client.Object) []string {
-	pod, ok := rawObj.(*corev1.Pod)
-	if !ok {
-		return []string{}
-	}
-	return []string{pod.Spec.NodeName}
 }

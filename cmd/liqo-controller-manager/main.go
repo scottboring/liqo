@@ -248,6 +248,7 @@ func main() {
 			},
 		}),
 	})
+
 	if err != nil {
 		klog.Errorf("Unable to create auxiliary manager: %w", err)
 		os.Exit(1)
@@ -384,15 +385,19 @@ func main() {
 		klog.Fatal(err)
 	}
 
-	virtualNodeReconciler := &virtualnodectrl.VirtualNodeReconciler{
-		Client:                mgr.GetClient(),
-		Scheme:                mgr.GetScheme(),
-		EventsRecorder:        mgr.GetEventRecorderFor("virtualnode-controller"),
-		HomeClusterIdentity:   &clusterIdentity,
-		VirtualKubeletOptions: virtualKubeletOpts,
+	virtualNodeReconciler, err := virtualnodectrl.NewVirtualNodeReconciler(
+		mgr.GetClient(),
+		auxmgr.GetClient(),
+		mgr.GetScheme(),
+		mgr.GetEventRecorderFor("virtualnode-controller"),
+		&clusterIdentity,
+		virtualKubeletOpts,
+	)
+	if err != nil {
+		klog.Fatal(err)
 	}
 
-	if err = virtualNodeReconciler.SetupWithManager(ctx, mgr); err != nil {
+	if err = virtualNodeReconciler.SetupWithManager(mgr); err != nil {
 		klog.Fatal(err)
 	}
 
